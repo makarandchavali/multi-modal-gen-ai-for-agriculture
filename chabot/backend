@@ -1,1 +1,120 @@
+import torch
+import torch.nn as nn
+from torchvision import transforms, models
+from PIL import Image
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from transformers import T5ForConditionalGeneration, T5Tokenizer
+import os
+from io import BytesIO
 
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def serve_frontend():
+    return FileResponse("index.html")
+
+config = {
+    "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "chatbot_device": "cpu",
+    "disease_directories": [
+        "Apple_Apple_scab", "Apple_Black_rot", "Apple_Cedar_apple_rust",
+        "Blueberry__healthy", "Cherry(including_sour)_Powdery_mildew",
+        "Corn_(maize)_Cercospora_leaf_spot_Gray_leaf_spot",
+        "Corn_(maize)Common_rust", "Corn_(maize)_Northern_Leaf_Blight",
+        "Grape__Black_rot", "Grape_Esca(Black_Measles)",
+        "Grape__Leaf_blight(Isariopsis_Leaf_Spot)",
+        "Orange_Haunglongbing(Citrus_greening)", "Peach__Bacterial_spot",
+        "Pepper,bell_Bacterial_spot", "Potato__Early_blight",
+        "Potato_Late_blight", "Raspberry_healthy", "Soybean_healthy",
+        "Squash_Powdery_mildew", "Strawberry_Leaf_scorch",
+        "Tomato___Spider_mites_Two-spotted_spider_mite",
+        "Tomato_Tomato_Yellow_Leaf_Curl_Virus", "Tomato_Tomato_mosaic_virus"
+    ]
+}
+
+device = config["device"]
+chatbot_device = config["chatbot_device"]
+disease_directories = config["disease_directories"]
+
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+class SimpleCNN(nn.Module):
+    def _init(self, num_classes):  # Corrected method name to __init_
+        super(SimpleCNN, self)._init_()  # Corrected call to the parent class constructor
+        self.model = models.resnet18(weights="IMAGENET1K_V1")
+        self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+
+    def forward(self, x):
+        return self.model(x)
+
+num_classes = 27
+cnn_model = SimpleCNN(num_classes).to(device)
+model_path = "plant_disease_cnn_model.pth"
+cnn_model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+cnn_model.eval()
+
+lora_model_path = "merged-flan-t5"
+tokenizer = T5Tokenizer.from_pretrained(lora_model_path)
+chatbot_model = T5ForConditionalGeneration.from_pretrained(
+    lora_model_path,
+    torch_dtype=torch.float16
+).to(chatbot_device)
+chatbot_model.eval()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+last_detected_disease = None
+
+def predict_disease(image: Image.Image):
+    global last_detected_disease
+    try:
+        image = transform(image).unsqueeze(0).to(device)
+        with torch.no_grad():
+            outputs = cnn_model(image)
+            _, predicted = torch.max(outputs, 1)
+        last_detected_disease = disease_directories[predicted.item()]
+        return f"Disease detected: {last_detected_disease}"
+    except Exception as e:
+        return f"Error processing image: {e}"
+
+def get_chatbot_response(user_query):
+    if not last_detected_disease:
+        return "Please upload an image first to detect the disease before asking questions."
+    input_text = f"Given the plant disease {last_detected_disease}, {user_query}"
+    inputs = tokenizer(input_text, return_tensors="pt").to(chatbot_device)
+    with torch.no_grad():
+        output_ids = chatbot_model.generate(
+            **inputs,
+            max_length=200,
+            repetition_penalty=1.2,
+            no_repeat_ngram_size=3,
+            early_stopping=True
+        )
+    return tokenizer.decode(output_ids[0], skip_special_tokens=True)
+
+@app.post("/predict/")
+async def predict(image: UploadFile = File(...)):
+    global last_detected_disease
+    image_data = await image.read()
+    image = Image.open(BytesIO(image_data)).convert("RGB")
+    disease_message = predict_disease(image)
+    return {"message": disease_message}
+
+@app.post("/chat/")
+async def chatbot_response(question: str = Form(...)):
+    response = get_chatbot_response(question)
+    return {"response": response}
