@@ -1,1 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Plant Disease Detection and Chatbot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #e6f7e6;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 20px auto;
+      background: #ffffff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+    .header-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding-bottom: 20px;
+    }
+    .header-container img {
+      width: 150px;
+      height: 50px;
+    }
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      align-items: left;
+      background: #f0fff4;
+      padding: 20px;
+      border-radius: 10px;
+    }
+    .chat-window {
+      width: 100%;
+      height: 480px;
+      background: #ffffff;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 10px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+    .input-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      gap: 10px;
+    }
+    .file-input-container {
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .file-input-container input[type="file"] {
+      display: none;
+    }
+    .file-input-container label {
+      padding: 12px 20px;
+      cursor: pointer;
+      border: none;
+      background-color: #02734a;
+      color: white;
+      font-size: 16px;
+      border-radius: 8px;
+      transition: background 0.3s;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .file-input-container label:hover {
+      background-color: #045b39;
+    }
+    .chat-input-container {
+      flex: 3;
+    }
+    .chat-input-container input {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    .send-button {
+      padding: 12px 30px;
+      cursor: pointer;
+      border: none;
+      background-color: #02734a;
+      color: white;
+      font-size: 16px;
+      border-radius: 8px;
+      transition: background 0.3s;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+    .send-button:hover {
+      background-color: #045b39;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 8px;
+      max-width: 80%;
+    }
+    .user-message {
+      background-color: #e1ffc7;
+      align-self: flex-end;
+      text-align: right;
+    }
+    .bot-message {
+      background-color: #f1f1f1;
+      align-self: flex-start;
+      text-align: left;
+    }
+    .acknowledgement {
+      font-style: italic;
+      color: #555;
+      text-align: center;
+      margin: 5px 0;
+    }
+    .uploaded-image {
+      max-width: 25%;
+      height: auto;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header-container">
+      <img src="static/images/logo.png" alt="Farmacy Logo">
+    </div>
+    <div class="chat-container">
+      <div class="chat-window" id="chat-window"></div>
+      <form id="combined-form">
+        <div class="input-container">
+          <div class="file-input-container">
+            <label for="image-input">Upload Image</label>
+            <input type="file" id="image-input" name="image" accept="image/*">
+          </div>
+          <div class="chat-input-container">
+            <input type="text" id="chat-input" name="question" placeholder="Enter your question or upload an image">
+          </div>
+          <button class="send-button" type="submit">Send</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+    const combinedForm = document.getElementById('combined-form');
+    const chatWindow = document.getElementById('chat-window');
+    const chatInput = document.getElementById('chat-input');
+    const imageInput = document.getElementById('image-input');
+    function addMessage(type, text) {
+      const messageDiv = document.createElement('div');
+      messageDiv.classList.add('message', ${type}-message);
 
+      messageDiv.innerText = text;
+      chatWindow.appendChild(messageDiv);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+    function addAcknowledgement(text) {
+      const ackDiv = document.createElement('div');
+      ackDiv.classList.add('acknowledgement');
+      ackDiv.innerText = text;
+      chatWindow.appendChild(ackDiv);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+    function displayImage(file) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const img = document.createElement('img');
+        img.src = e.target.result;
+        img.classList.add('uploaded-image');
+        const imageContainer = document.createElement('div');
+        imageContainer.classList.add('message', 'user-message');
+        imageContainer.appendChild(img);
+        chatWindow.appendChild(imageContainer);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+      };
+      reader.readAsDataURL(file);
+    }
+    imageInput.addEventListener('change', (e) => {
+      if (imageInput.files[0]) {
+        displayImage(imageInput.files[0]);
+        addAcknowledgement('Image uploaded successfully. Click "Send" to process.');
+      }
+    });
+    combinedForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData();
+      if (imageInput.files[0]) {
+        formData.append('image', imageInput.files[0]);
+      }
+      const question = chatInput.value.trim();
+      if (question) {
+        formData.append('question', question);
+        addMessage('user', You: ${question});
+
+        addAcknowledgement('Question received. Processing...');
+      }
+      if (!imageInput.files[0] && !question) {
+        alert('Please upload an image or enter a question.');
+        return;
+      }
+
+      const response = await fetch('/process', {
+        method: 'POST',
+        body: formData
+      });
+      const result = await response.json();
+      
+    });
+  </script>
+</body>
+</html>
